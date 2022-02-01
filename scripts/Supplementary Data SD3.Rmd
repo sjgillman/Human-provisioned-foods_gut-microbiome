@@ -1,0 +1,853 @@
+---
+title: "Supplementary SD3: Human-provisioned foods reduce gut microbiome diversity in American black bears"
+author: "Sierra J. Gillman, Erin A. McKenney, Diana J.R. Lafferty"
+date: "1/23/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+__*All Data Files necessary for replication of the analysis along with Demultiplexed Sequences can be found in a*__ [Zenodo.org](https://zenodo.org) __*repository: 10.5281/zenodo.5133808*__
+```{r, chunk-1,message=F,echo=F}
+
+library(ggplot2)
+library(microbiome)
+library(phyloseq)
+library(qiime2R)
+library(picante)
+library(brms)
+library(dplyr)
+library(coda)
+library(Rmisc)
+library(tidyverse)
+library(cowplot)
+library(knitr)
+library(bookdown)
+library(car)
+library(Rmisc)
+library(RVAideMemoire)
+library(kableExtra)
+library(PMCMR)
+
+setwd("~/Desktop/Projects/Bear/Bear-R/CLEAN/FINAL")
+```
+
+# Supplemental Code
+## Data Cleaning and Normalization
+
+### Import and clean data
+Package qiime2R
+```{r, chunk-1x,message=F, eval=F}
+
+library(ggplot2)
+library(microbiome)
+library(phyloseq)
+library(qiime2R)
+library(picante)
+library(brms)
+library(dplyr)
+library(coda)
+library(Rmisc)
+library(tidyverse)
+library(cowplot)
+library(knitr)
+library(bookdown)
+library(car)
+library(Rmisc)
+library(RVAideMemoire)
+library(kableExtra)
+library(SRS)
+
+setwd("~/Desktop/Projects/Bear/Bear-R/CLEAN/FINAL")
+```
+
+```{r chunk-1a, message=F, eval=F}
+## import artifacts & metadata file
+metadata<-read_tsv("Metafile.tsv")
+SVs<-read_qza("table.qza")
+taxonomy<-read_qza("taxonomy.qza")
+taxtable<-taxonomy$data %>% 
+  as_tibble() %>% 
+  separate(Taxon, sep=";", c("Domain", 
+                             "Phylum", "Class", 
+                             "Order", "Family",
+                             "Genus", "Species")) 
+tree<-read_qza("rooted-tree.qza")
+
+
+## Create the phyloseq object
+phy_obj<-phyloseq(
+  otu_table(SVs$data, taxa_are_rows = T), 
+  phy_tree(tree$data), 
+  tax_table(as.data.frame(taxtable) %>% 
+              select(-Confidence) %>% 
+              column_to_rownames("Feature.ID") %>% 
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(metadata %>% 
+                as.data.frame() %>% 
+                column_to_rownames("SampleID")))
+
+```
+
+***
+
+### Clean up taxonomy names
+
+```{r, chunk-2,message=F, eval=F}
+## Rename NAs to last known group
+tax.clean <- data.frame(tax_table(phy_obj))
+for (i in 1:7){ tax.clean[,i] <- as.character(tax.clean[,i])}
+tax.clean[is.na(tax.clean)] <- ""
+
+for (i in 1:nrow(tax.clean)){
+  if (tax.clean[i,2] == ""){
+    kingdom <- paste("Kingdom_", tax.clean[i,1], sep = "")
+    tax.clean[i, 2:7] <- kingdom
+  } else if (tax.clean[i,3] == ""){
+    phylum <- paste("Phylum_", tax.clean[i,2], sep = "")
+    tax.clean[i, 3:7] <- phylum
+  } else if (tax.clean[i,4] == ""){
+    class <- paste("Class_", tax.clean[i,3], sep = "")
+    tax.clean[i, 4:7] <- class
+  } else if (tax.clean[i,5] == ""){
+    order <- paste("Order_", tax.clean[i,4], sep = "")
+    tax.clean[i, 5:7] <- order
+  } else if (tax.clean[i,6] == ""){
+    family <- paste("Family_", tax.clean[i,5], sep = "")
+    tax.clean[i, 6:7] <- family
+  } else if (tax.clean[i,7] == ""){
+    tax.clean$Species[i] <- paste("Genus",tax.clean$Genus[i], sep = "_")
+  }
+}
+## import new taxonomy table
+tax_table(phy_obj) <- as.matrix(tax.clean)
+
+
+## save phyloseq object
+saveRDS(phy_obj, "Chap2/physeq.rds")
+
+```
+
+***
+
+### Normalization with SRS
+
+```{r, chunk-3,message=F, eval=F}
+# phy_obj<- readRDS("Chap2/physeq.rds")
+
+summary(sample_sums(phy_obj))
+# set seed
+set.seed(9242) 
+
+# pull dataframe
+otu<-as.data.frame(otu_table(phy_obj))
+
+# look as SRScurve
+SRS.shiny.app(otu)
+```
+
+#### SRS normalization curves for species richness and shannon diversity
+### Figure Supplemental 1
+```{r chunk-3a, echo=F,fig.align="center",out.width="70%"}
+
+include_graphics("chap2/rich.png")
+  
+```
+
+#### Normalize
+
+```{r, chunk-3c,message=F, eval=F}
+new_otu<-as.matrix(SRS(otu, Cmin=1455, 
+                       set_seed = T, seed=9242), 
+                   rownames=T)
+# 2 sample(s) discarded due to low number 
+# of counts (number of counts < Cmin):  S100J, S56J
+
+## need to get the row names back
+rownames(new_otu)<-rownames(otu)
+
+# create new phyloseq object
+srs_obj<-phyloseq(otu_table(new_otu, 
+                            taxa_are_rows = T),
+         phy_tree(phy_obj), 
+         tax_table(phy_obj),
+         sample_data(phy_obj))
+
+summary(sample_sums(srs_obj))
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 1455    1455    1455    1455    1455    1455 
+
+saveRDS(srs_obj, "Chap2/physeq_srs.rds")
+
+```
+
+***
+
+### Comparison of long-term consumption of human-provisioned foods across age-classes.
+```{r chunk-anova, message=F}
+srs_obj<-readRDS("Chap2/physeq_srs.rds")
+
+# checking Assumption 1: normality of each group
+sam.meta<-meta(srs_obj)
+sam.meta$SampleID <- rownames(sam.meta)
+# remove unknowns:
+sam.meta2<- subset(sam.meta, AgeClass!="Unknown")
+
+byf.hist(d13C~AgeClass, data=sam.meta2, density= T, sep=F)
+# looks okay
+
+# shapiro-wilk
+byf.shapiro(d13C~AgeClass, data=sam.meta2)
+# adults are fine but yearlings and subadults are not..
+
+#Assumption 2: Levene test
+leveneTest(d13C~AgeClass, data=sam.meta2)
+# not sig.
+
+# will go with Kruskal-wallis.
+
+kruskal.test(d13C~AgeClass, data=sam.meta2)
+
+# post-hoc 
+posthoc.kruskal.dunn.test(d13C~as.factor(AgeClass), data=sam.meta2, p.adjust="bonf")
+# subadult and Adult
+```
+
+***
+
+### Population level community composition
+
+```{r chunk-nmds, message=F, eval=F}
+srs_rel<- microbiome::transform(srs_obj, "compositional")
+
+comp <- tax_glom(srs_rel, taxrank = "Genus")
+
+comp_melt<- psmelt(comp)
+
+p_abund<-summarySE(comp_melt, measurevar = "Abundance", groupvars =c("Genus"))
+
+##remove 0 abundance
+p_abund$Abundance[p_abund$Abundance==0] <- NA
+p_abund<-p_abund[complete.cases(p_abund$Abundance),]
+p_abund<- p_abund %>% 
+  mutate_if(is.numeric, round, digits = 5)
+
+
+## genus
+p_abund$Genus <- as.character(p_abund$Genus)
+
+#simple way to rename phyla with < 1% abundance
+p_abund$Genus[p_abund$Abundance < 0.01] <- "Minor"
+unique(p_abund$Genus)
+
+abundance<-subset(p_abund, Genus!="Minor")
+merged_abund<-merge(abundance, comp_melt, by="Genus")
+merged_abund <- merged_abund[!duplicated(merged_abund$Genus),]
+write.csv(merged_abund, "Chap2/abundance.csv")
+
+# Phylum
+comp <- tax_glom(srs_rel, taxrank = "Phylum")
+
+comp_melt2<- psmelt(comp)
+
+p_abund<-summarySE(comp_melt2, measurevar = "Abundance", groupvars =c("Phylum"))
+
+##remove 0 abundance
+p_abund$Abundance[p_abund$Abundance==0] <- NA
+p_abund<-p_abund[complete.cases(p_abund$Abundance),]
+p_abund<- p_abund %>% 
+  mutate_if(is.numeric, round, digits = 5)
+
+
+## genus
+p_abund$Phylum <- as.character(p_abund$Phylum)
+
+#simple way to rename phyla with < 1% abundance
+p_abund$Phylum[p_abund$Abundance < 0.01] <- "Minor"
+unique(p_abund$Phylum)
+
+abundance<-subset(p_abund, Phylum!="Minor")
+abundance
+
+```
+
+***
+
+## Alpha Diversity calculations
+
+Indices calculated: 
+
+- *Observed ASVs*
+- *Faith's Phylogenetic diversity (PD)*
+
+### Observed ASVs & Faith's PD
+*PD function in picante package calculates both Faith's PD and observed ASVs*
+
+```{r chunk-4b, message=F}
+## pull ASV table
+srs_obj.asvtab <- as.data.frame(srs_obj@otu_table)
+
+
+## pull tree
+srs_obj.tree <- srs_obj@phy_tree
+
+## We first need to check if the tree is rooted or not 
+srs_obj@phy_tree
+###rooted so we are good to go
+
+## Getting the data ready
+div_pd <- pd(t(srs_obj.asvtab), srs_obj.tree,include.root=T) 
+
+## Add the rownames to diversity table
+div_pd$SampleID <- rownames(div_pd)
+```
+
+
+#### Merge all of the alphas into one dataset
+
+Only keeping samples from bears with both jejunum and colon= 54
+```{r chunk-4c, message=F}
+
+alpha_table <- merge(div_pd,sam.meta, by = "SampleID", all=T)
+# drop samples with only one sample
+
+ sub_counts <- alpha_table %>%
+    group_by(Subject) %>%
+    tally
+
+
+# get names of the species with counts >= 10
+new_alpha <-  sub_counts %>%
+    filter(n ==2) %>%
+    select(Subject) %>%
+  merge(alpha_table, by="Subject")
+#54 samples
+
+```
+
+***
+
+### Statisical analysis of alpha diversity
+##### Observed ASVs Bayesian Multilevel Models
+```{r chunk-5, message=F, eval=F}
+
+null_SR<-brm(SR~1+(1|Subject), 
+         family=negbinomial(),
+         chains=4,
+         iter=20000,
+         warmup=2000,
+         seed = 20191125,
+         thin=5,
+         data=new_alpha,save_all_pars = T)
+
+
+modelGIT_SR<-brm(SR~d13C*GIT+(1|Subject), 
+         family=negbinomial(),
+         chains=4,
+         iter=20000,
+         warmup=2000,
+         seed = 20191125,
+         thin=5,
+         data=new_alpha,save_all_pars = T)
+
+modelAge_SR<-brm(SR~d13C*AgeClass+(1|Subject), 
+         family=negbinomial(),
+         chains=4,
+         iter=20000,
+         warmup=2000,
+         seed = 20191125,
+         thin=5,
+         data=new_alpha, save_all_pars = T, control=list(max_treedepth=15))
+
+model13_SR<-brm(SR~d13C+(1|Subject), 
+         family=negbinomial(),
+         chains=4,
+         iter=20000,
+         warmup=2000,
+         seed = 20191125,
+         thin=5,
+         data=new_alpha, save_all_pars = T)
+
+
+SRloo_null<-loo::loo(null_SR, k_threshold=.7,
+                moment_match = T,
+                reloo=T,seed=TRUE,
+               save_psis = TRUE)
+
+SRloo_GIT<-loo::loo(modelGIT_SR, k_threshold=.7,
+                moment_match = T,
+                reloo=T,seed=TRUE,
+               save_psis = TRUE)
+
+SRloo_Age<-loo::loo(modelAge_SR, k_threshold=.7,
+                moment_match = T,
+                reloo=T,seed=TRUE,
+               save_psis = TRUE)
+
+SRloo13<-loo::loo(model13_SR, k_threshold=.7,
+                moment_match = T, 
+                reloo=T,seed=TRUE,
+               save_psis = TRUE)
+
+SR_compare<-loo_compare(SRloo_null,SRloo_GIT, SRloo_Age,SRloo13)
+saveRDS(SR_compare, "Chap2/SR_loo.rds")
+saveRDS(model13_SR, "Chap2/SR_mod.rds")
+# model without interaction is best.
+```
+```{r, chunk-5a, message=F, echo=F}
+SR_compare<-readRDS("Chap2/SR_loo.rds")
+print(SR_compare, simplify=F)
+```
+
+```{r, chunk-5b, message=F, eval=F}
+## log PD
+null_PD<-brm(log(PD)~1+(1|Subject),
+         gaussian(),
+         chains=4,
+         iter=20000,
+         warmup=2000,
+         thin=5,
+         seed = 20191125,
+         data=new_alpha, save_all_pars = T)
+
+modelAge_PD<-brm(log(PD)~d13C*AgeClass+(1|Subject),
+         gaussian(),
+         chains=4,
+         iter=20000,
+         warmup=2000,
+         thin=5,
+         seed = 20191125,
+         data=new_alpha, save_all_pars = T)
+
+modelGIT_PD<-brm(log(PD)~d13C*GIT+(1|Subject),
+         gaussian(),
+         chains=4,
+         iter=20000,
+         warmup=2000,
+         thin=5,
+         seed = 20191125,
+         data=new_alpha, save_all_pars = T)
+
+model13_PD<-brm(log(PD)~d13C+(1|Subject),
+         gaussian(),
+         chains=4,
+         iter=20000,
+         warmup=2000,
+         thin=5,
+         seed = 20191125,
+         data=new_alpha, save_all_pars = T)
+
+PDloon_null<-loo::loo(null_PD, k_threshold=.7,
+                moment_match = T,
+                reloo=T,seed=TRUE,
+                save_psis = TRUE)
+
+PDloo_GIT<-loo::loo(modelGIT_PD, k_threshold=.7,
+                moment_match = T,
+                reloo=T,seed=TRUE,
+                save_psis = TRUE)
+
+PDlooAge<-loo::loo(modelAge_PD, k_threshold=.7,
+                moment_match = T,
+                reloo=T,seed=TRUE,
+                save_psis = TRUE)
+
+PDloo13<-loo::loo(model13_PD, k_threshold=.7,
+                moment_match = T, 
+                reloo=T,seed=TRUE,
+                save_psis = TRUE)
+
+
+PD_compare<-loo_compare(PDloon_null,PDloo_GIT, PDlooAge,PDloo13)
+saveRDS(PD_compare, "Chap2/PD_loo.rds")
+saveRDS(model13_PD, "Chap2/PD_mod.rds")
+# model without an interaction
+```
+```{r, chunk-5c, message=F, echo=F}
+PD_compare<-readRDS("Chap2/PD_loo.rds")
+print(PD_compare, simplify=F)
+```
+
+#### Check convergence for each model and plot
+```{r, message=F}
+# To obtain the Gelman and Rubin diagnostic use for top models:
+model_SR<-readRDS("Chap2/SR_mod.rds")
+# SR
+modelposterior <- brms::as.mcmc(model_SR) # with the as.mcmc() command we can
+# use all the CODA package convergence statistics and plotting options
+gelman.diag(modelposterior[, 1:3])
+
+gelman.plot(modelposterior[, 1:3])
+pp_check(model_SR)
+plot(model_SR)
+
+summary(model_SR)
+
+# PD
+model_PD<-readRDS("Chap2/PD_mod.rds")
+modelposterior <- brms::as.mcmc(model_PD) # with the as.mcmc() command we can
+# use all the CODA package convergence statistics and plotting options
+gelman.diag(modelposterior[, 1:3])
+
+gelman.plot(modelposterior[, 1:3])
+pp_check(model_PD)
+plot(model_PD)
+
+summary(model_PD)
+```
+
+***
+
+## Beta diversity statistical analysis
+
+### Weighted UniFrac Mantel's test
+
+```{r chunk-wu, message=F, eval=F}
+#srs_obj<- readRDS("Chap2/physeq_srs.rds")
+
+srs_rel<- microbiome::transform(srs_obj, "compositional")
+
+wunifrac.distC <- UniFrac(srs_rel, 
+                         weighted = TRUE, 
+                         normalized = TRUE,  
+                         parallel = FALSE, 
+                         fast = TRUE)
+
+
+## mantels for carbon
+external<-as.data.frame(sam.meta[,c("d13C")])
+
+met_euc<-vegdist(external[,1], method="euc")
+
+se.man<-mantel(wunifrac.distC,met_euc, method="spearman", permutations = 9999 )
+se.man
+#Mantel statistic r: 0.01952 
+#      Significance: 0.2752 
+```
+
+### Unweighted UniFrac Mantel's test
+
+```{r chunk-uw, message=F, eval=F}
+uunifrac.distC <- UniFrac(srs_rel, 
+                          weighted = FALSE, 
+                          normalized = TRUE,  
+                          parallel = FALSE, 
+                          fast = TRUE)
+
+
+
+
+met_euc<-vegdist(external, method="euc")
+
+se.man<-mantel(uunifrac.distC,met_euc, method="spearman", permutations = 9999)
+se.man
+#Mantel statistic r: 0.1043 
+#      Significance: 0.068 
+```
+
+***
+
+## Plotting
+### Figure 1
+```{r chunk-plots, message=F, eval=F}
+## plot
+
+library(scico)
+scico(2, palette= "cork")
+iso<-read.csv("Chap2/Chap2_Consumer2.csv")
+p1<-ggplot(iso, aes(x=d13C, y=d15N)) + 
+  geom_point(color="black",shape=21,size=2.5)+
+  geom_point(color="black",size=2, alpha=.8)+
+  scale_color_manual(values=c("black"))+
+  theme_classic()+ 
+  theme(legend.position = "none",
+    legend.title =element_text(size=10, family="Helvetica"),
+    legend.title.align = 0.5,
+        legend.text = element_text(size=10, family="Helvetica"),
+        axis.text.x = element_text(color="black", family="Helvetica", size=10),
+        axis.text.y = element_text(color="black", family="Helvetica", size=10),
+        panel.background=element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        axis.title.x = element_text(family="Helvetica", size=10),
+        strip.text =element_text(family="Helvetica", size=10),
+        axis.line = element_line(color="black"),
+        strip.background = element_blank(),
+        axis.title.y = element_text(family="Helvetica", size=10))+
+  scale_x_continuous(breaks=c(-27,-26,-25,-24,-23,-22,-21,-20,-19),
+                     limits = c(-27,-19))+
+  scale_y_continuous(breaks=c(2,3,4,5,6,7), limits = c(2,7))+
+  xlab(expression(paste(delta^13,"C(\u2030)")))+ylab(expression(paste(delta^15,"N(\u2030)")))
+
+sam.meta2$AgeClass<- factor(sam.meta2$AgeClass, levels=c("Yearling", "Subadult","Adult"))
+
+p2<-ggplot(data=sam.meta2, aes(x=AgeClass, y=d13C, fill=AgeClass))+
+  geom_violin()+
+ geom_boxplot(fill="white",width = 0.15, color="black", 
+               outlier.color = "black", 
+               outlier.fill="gray",outlier.shape = 21)+
+  scale_fill_manual(values=c("gray","gray55", "gray25"))+
+  theme_classic()+ 
+  theme(legend.position = "none",
+    legend.title =element_text(size=10, family="Helvetica"),
+        legend.text = element_text(size=10, family="Helvetica"),
+        axis.text.x = element_text(color="black", family="Helvetica", size=10),
+        axis.text.y = element_text(color="black", family="Helvetica", size=10),
+        panel.background=element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        axis.title.x = element_text(family="Helvetica", size=10),
+        strip.text =element_text(family="Helvetica", size=10),
+        axis.line = element_line(color="black"),
+        strip.background = element_blank(),
+        axis.title.y = element_text(family="Helvetica", size=10))+
+    scale_y_continuous(breaks=c(-27,-25,-23,-21,-19),
+                       limits = c(-27,-19))+
+  xlab("AgeClass")+ylab(expression(paste(delta^13,"C(\u2030)")))
+
+
+fig1<-cowplot::plot_grid(p1, p2, ncol=1)
+
+
+ggsave(fig1, filename="Chap2/Fig12_new.pdf", width=90, height = 90,
+       encoding="MacRoman",
+       units="mm",
+       device="pdf")
+
+str(pdfFonts("sans"))
+
+```
+
+```{r, message=F, echo=F, out.width="65%"}
+
+include_graphics("chap2/Fig12_new.png")
+```
+
+
+### Figure 2
+
+```{r, message=F, eval=F}
+### Plot the Postier estimates
+me[[1]]
+me<-conditional_effects(model_PD)
+p2<-plot(me, plot=F, points=T)[[1]]+
+  geom_line(color="black",size=2)+
+  theme_classic()+ 
+  theme(legend.title =element_text(size=12, family="Helvetica"),
+        legend.text = element_text(size=10, family="Helvetica"),
+        axis.text.x = element_text(color="black", family="Helvetica", size=8),
+        axis.text.y = element_text(color="black", family="Helvetica", size=8),
+        panel.background=element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        axis.title.x = element_text(family="Helvetica",, size=10),
+        strip.text =element_text(family="Helvetica", size=10),
+        axis.line = element_line(color="black"),
+        strip.background = element_blank(),
+        axis.title.y = element_text(family="Helvetica", size=10))+
+  scale_x_continuous(breaks=c(-27,-26,-25,-24,-23,-22,
+                              -21,-20,-19), limits=c(-27,-19))+
+   scale_y_continuous(limits=c(0.5,3),breaks=c(0.5,1,1.5,2,2.5,3))+
+        ylab("Log Faith's PD")+xlab(expression(paste(delta^13,"C(\u2030)")))
+
+me<-conditional_effects(model_SR)
+p1<-plot(me, plot=F, points=T)[[1]]+
+  geom_line(color="black",size=2)+
+  theme_classic()+ 
+  theme(legend.title =element_text(size=10, family="Helvetica"),
+        legend.text = element_text(size=10, family="Helvetica"),
+        axis.text.x = element_text(color="black", family="Helvetica", size=8),
+        axis.text.y = element_text(color="black", family="Helvetica", size=8),
+        panel.background=element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        axis.title.x = element_text(family="Helvetica", size=10),
+        strip.text =element_text(family="Helvetica", size=10),
+        axis.line = element_line(color="black"),
+        strip.background = element_blank(),
+        axis.title.y = element_text(family="Helvetica"))+
+    scale_x_continuous(breaks=c(-27,-26,-25,-24,-23,-22,
+                              -21,-20,-19),limits=c(-27,-19))+
+    scale_y_continuous(breaks=c(0,25,50,75,100,125,
+                              150,175,200), limit=c(0,200))+
+  ylab("Species Richness")+xlab(expression(paste(delta^13,"C(\u2030)")))
+
+fig2<-plot_grid(p1, p2, ncol=1)
+
+
+ggsave(fig2, filename="Chap2/Fig2_new.pdf",width=90, height = 100,
+       units="mm",
+       encoding="MacRoman",
+       device="pdf")
+
+```
+
+```{r, message=F, echo=F, fig.align="center",out.width="70%"}
+
+include_graphics("chap2/Fig2_new.png")
+```
+
+
+***
+
+## Supplemental Figures
+
+### Figure Supplemental 2
+
+```{r chunk-plotsuni, message=F, eval=F}
+library(viridis)
+Wunifrac.dist1<- metaMDS(wunifrac.distC ,k=3, trymax=1000, autotransform=F)
+Wunifrac.dist1
+# stress 0.02
+
+p0<-phyloseq::plot_ordination(srs_rel, Wunifrac.dist1, axes=c(1,2))+
+  #geom_point(color="black",shape=21,size=3.5)+
+  geom_point(aes(color=as.numeric(d13C)),size=3, alpha=.8)+
+  scale_color_viridis(option = "D")+
+  theme(
+    axis.ticks = element_blank(),
+    axis.text.x = element_text(family="Helvetica",size=8, color="black"),
+    axis.text.y = element_text(family="Helvetica",size=8, color="black"),
+    axis.title = element_text(family="Helvetica", size=8, color="black"),
+    legend.text = element_text(size=8, family="Helvetica"),
+    legend.key = element_rect(fill = NA),
+    axis.title.x = element_text(family="Helvetica",size=8), 
+    axis.title.y = element_text(size=8, family="Helvetica"),
+    panel.background = element_blank(),
+    legend.title = element_blank(), 
+    plot.title = element_text(family="Helvetica", size=8, color="black", vjust=-8),
+    plot.background = element_blank(),
+    panel.border = element_rect(colour = "black",
+  fill=NA, size=.5))+
+  guides(colour = guide_legend(nrow = 1))+
+  ggtitle("Weighted UniFrac")+
+  xlab("stress= 0.02")+ylab("")
+
+p1<-phyloseq::plot_ordination(srs_rel, Wunifrac.dist1, axes=c(1,2))+
+  geom_point(color="black",shape=21,size=3.5)+
+  geom_point(aes(color=d13C),size=3, alpha=.8)+
+  scale_color_viridis(option = "D")+
+  theme( 
+    legend.position="none",
+    axis.ticks = element_blank(),
+    axis.text.x = element_text(family="Helvetica",size=8, color="black"),
+    axis.text.y = element_text(family="Helvetica",size=8, color="black"),
+    axis.title = element_text(family="Helvetica", size=8, color="black"),
+    legend.text = element_text(size=8, family="Helvetica"),
+    legend.key = element_rect(fill = NA),
+    axis.title.x = element_text(family="Helvetica",size=8), 
+    axis.title.y = element_text(size=8, family="Helvetica"),
+    panel.background = element_blank(),
+    legend.title = element_blank(), 
+    plot.title = element_text(family="Helvetica", size=8, color="black", vjust=-8),
+    plot.background = element_blank(),
+    panel.border = element_rect(colour = "black",
+  fill=NA, size=.5))+
+  guides(colour = guide_legend(nrow = 1))+
+  ggtitle("Weighted UniFrac")+
+  xlab("stress= 0.02")+ylab("")
+
+
+# species loadings
+
+## with taxa
+GPfr = phyloseq::filter_taxa(srs_rel, function(x) mean(x) >= 0.001, TRUE)
+otu_dat<-t(as.data.frame(otu_table(GPfr)))
+
+ef.nmdsu <- envfit(Wunifrac.dist1, otu_dat, permutations = 999)
+# Now add the environmental variables as arrows
+pvals<-as.data.frame(ef.nmdsu$vectors$pvals)
+pvals$lab<-rownames(pvals)
+pvals
+sig<-pvals[which(ef.nmdsu$vectors$pvals<=0.05),]
+taxa_dat<-as.data.frame(tax_table(GPfr))
+
+
+arrowmat = vegan::scores(ef.nmdsu, display = "bp")
+# Add labels, make a data.frame
+arrowdf <- data.frame(lab = rownames(arrowmat), arrowmat)
+
+taxa_dat$lab<-rownames(taxa_dat)
+
+
+darrow<-semi_join(arrowdf,sig, by="lab")%>%
+  semi_join(taxa_dat, by="lab")
+
+
+taxmerg<-taxa_dat[,c("Genus","lab")]
+
+arrdowd<-merge(darrow, taxmerg, by="lab")
+arrdowd<-arrdowd[,-1]
+
+
+# Define the arrow aesthetic mapping
+arrow_map = aes(xend = NMDS1, yend = NMDS2, x = 0, y = 0, shape = NULL, color = NULL)
+label_map = aes(x = 1.08 * NMDS1, y = 1.08 * NMDS2, shape = NULL, color = NULL)
+
+# Make a new graphic
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+p2<-phyloseq::plot_ordination(srs_rel, Wunifrac.dist1, color="d13C", axes=c(1,2))+
+  geom_point(color="black",shape=21,size=3.5)+
+  geom_point(aes(color=d13C),size=3, alpha=.8)+
+  geom_segment(arrow_map, size = 0.3, data = arrdowd, color = "black", 
+               arrow = arrowhead) + 
+  geom_text( vjust="inward",hjust="inward",
+             label_map, size = 2.5, label=arrdowd$Genus,data = arrdowd, family="Helvetica")+
+  scale_color_viridis(option = "D")+
+  theme( 
+    legend.position="none",
+    axis.ticks = element_blank(),
+    axis.text.x = element_text(family="Helvetica",size=8, color="black"),
+    axis.text.y = element_text(family="Helvetica",size=8, color="black"),
+    axis.title = element_text(family="Helvetica", size=8, color="black"),
+    legend.text = element_text(size=8, family="Helvetica"),
+    legend.key = element_rect(fill = NA),
+    axis.title.x = element_text(family="Helvetica",size=8), 
+    axis.title.y = element_text(size=8, family="Helvetica"),
+    panel.background = element_blank(),
+    legend.title = element_blank(), 
+    plot.title = element_text(family="Helvetica", size=8, color="black", vjust=-8),
+    plot.background = element_blank(),
+    panel.border = element_rect(colour = "black",
+  fill=NA, size=.5))+
+  guides(colour = guide_legend(nrow = 1))+
+  ggtitle("Weighted UniFrac")+
+  xlab("stress= 0.02")+ylab("")
+```
+
+```{r, eval=F}
+Uunifrac.dist1<- metaMDS(uunifrac.distC ,k=3, trymax=1000, autotransform=F)
+# stress 0.10
+
+p3<-phyloseq::plot_ordination(srs_obj, Uunifrac.dist1, axes=c(1,2))+
+  geom_point(color="black",shape=21,size=3.5)+
+  geom_point(aes(color=d13C),size=3, alpha=.8)+
+  scale_color_viridis(option = "D")+
+  theme( 
+    legend.position="none",
+    axis.ticks = element_blank(),
+    axis.text.x = element_text(family="Helvetica",size=8, color="black"),
+    axis.text.y = element_text(family="Helvetica",size=8, color="black"),
+    axis.title = element_text(family="Helvetica", size=8, color="black"),
+    legend.text = element_text(size=8, family="Helvetica"),
+    legend.key = element_rect(fill = NA),
+    axis.title.x = element_text(family="Helvetica",size=8), 
+    axis.title.y = element_text(size=8, family="Helvetica"),
+    panel.background = element_blank(),
+    legend.title = element_blank(), 
+    plot.title = element_text(family="Helvetica", size=8, color="black", vjust=-8),
+    plot.background = element_blank(),
+    panel.border = element_rect(colour = "black",
+  fill=NA, size=.5))+
+  guides(colour = guide_legend(nrow = 1))+
+  ggtitle("Unweighted UniFrac")+
+  xlab("stress= 0.1")+ylab("")
+
+
+legendw<-get_legend(p0)
+p5<-cowplot::plot_grid(p1,p2,p3,legendw)
+ggsave(p5, filename="Chap2/SupFig1.png", device="png", dpi=300)
+
+```
+
+```{r, echo=F, fig.align="center", out.width="65%"}
+include_graphics("Chap2/SupFig1.png")
+```
