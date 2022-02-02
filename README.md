@@ -8,7 +8,7 @@ The distal gut is home to the dynamic and influential gut microbiome, which is i
 
 Directory structure | Description
 --- | ---
-blackbear-gme-JoM/
+blackbear-gmb-JoM/
   README.md
   **data/** | **Description**
   *MetaFile.tsv* | the metadata file including sampleID, stable carbon and nitrogen values, sex, age-class etc for each sample
