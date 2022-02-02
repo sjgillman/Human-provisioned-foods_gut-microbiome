@@ -22,7 +22,7 @@ blackbear-gmb-JoM/
   *QIIME2 Pipeline.md* | bioinformatic pipeline to prepare sequences for analysis in R
    *Supplementary Data SD3.pdf/RMD* | code for analysis and figure creation in R.
   **images/**
-  *blackbear.jpg*
+  *blackbear.svg*
 
 <p align="center">
 <img src="images/blackbear.svg" width="300" />
