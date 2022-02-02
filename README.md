@@ -25,7 +25,7 @@ blackbear-gmb-JoM/
   *blackbear.jpg*
 
 <p align="center">
-<img src="images/blackbear.jpg" width="300" />
+<img src="images/blackbear.svg" width="300" />
   </p>
 
 
