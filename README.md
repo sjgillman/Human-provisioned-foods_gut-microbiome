@@ -1,5 +1,5 @@
-# Human-provisioned foods reduce gut microbiome diversity in American black bears (*Ursus americanus*) 2021
-#### Published Manuscript in Journal of Mammalogy; [DOI: 10.1093](https://doi.org/10.1093/jmammal/gyab154)
+# Human-provisioned foods reduce gut microbiome diversity in American black bears (*Ursus americanus*) 2022
+#### Published Manuscript in Journal of Mammalogy; [DOI: gyab154](https://doi.org/10.1093/jmammal/gyab154)
 Authors: Sierra J. Gillman, Erin A. McKenney, Diana J.R. Lafferty
 All infromation can also be downloaded from [zenodo](https://zenodo.org/record/5133808#.YfnEOvXMJhE)
 
